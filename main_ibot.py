@@ -559,8 +559,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, ibot_loss, data_loade
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
         metric_logger.update(acc=acc)
 
-        if it == 10:
-            break
+        #if it == 10:
+        #    break
     pred_labels = torch.cat(pred_labels).cpu().detach().numpy()
     real_labels = torch.cat(real_labels).cpu().detach().numpy()
     nmi, ari, fscore, adjacc = eval_pred(real_labels, pred_labels, calc_acc=False)
