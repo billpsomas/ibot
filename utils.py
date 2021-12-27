@@ -890,13 +890,14 @@ def compute_map(ranks, gnd, kappas=[]):
 
     return map, aps, pr, prs
 
-def subset_of_ImageNet_train_split(dataset_train, subset):
+def subset_of_Imagenet_train_split(dataset_train, subset):
     # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L244)
     assert isinstance(subset, int)
     assert subset > 0
-
+    
     all_indices = []
     for _, img_indices in buildLabelIndex(dataset_train.targets).items():
+        #import pdb;pdb.set_trace()
         assert len(img_indices) >= subset
         all_indices += img_indices[:subset]
 

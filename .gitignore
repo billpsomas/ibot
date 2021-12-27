@@ -10,3 +10,4 @@ __pycache__/
 pics/
 !.github/
 !.gitignore
+output/

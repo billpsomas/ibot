@@ -173,7 +173,7 @@ def train_ibot(args):
     )
     pred_size = args.patch_size * 8 if 'swin' in args.arch else args.patch_size
     dataset_train = ImageFolderMask(
-        args.data_path, 
+        os.path.join(args.data_path, "train"), # here we use the path of the train split of imagenet
         transform=transform_train,
         patch_size=pred_size,
         pred_ratio=args.pred_ratio,
