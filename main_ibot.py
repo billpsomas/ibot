@@ -11,6 +11,8 @@ import datetime
 import time
 import math
 import json
+import traceback
+
 import numpy as np
 import utils
 import models
@@ -702,4 +704,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('iBOT', parents=[get_args_parser()])
     args = parser.parse_args()
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    train_ibot(args)
+    try:
+        train_ibot(args)
+    except:
+        try:
+            dist.destroy_process_group()
+        finally:
+            print(traceback.format_exc())
+            os.system("kill -9 $(ps aux | grep main_dino.py | grep -v grep | awk '{print $2}') ")
