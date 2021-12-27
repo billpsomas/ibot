@@ -23,12 +23,18 @@ import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 
 from pathlib import Path
+
 from PIL import Image
+
+# OSError: image file is truncated (45 bytes not processed)
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 from torchvision import datasets, transforms
 from torchvision import models as torchvision_models
 from tensorboardX import SummaryWriter
 from models.head import iBOTHead
-from loader import ImageFolderMask
+from loader import ImageFolderMask, ImageFolderInstance
 from evaluation.unsupervised.unsup_cls import eval_pred
 from evaluation.eval_knn import extract_features, knn_classifier, ReturnIndexDataset
 
@@ -127,6 +133,16 @@ def get_args_parser():
     parser.add_argument('--load_from', default=None, help="""Path to load checkpoints to resume training.""")
     parser.add_argument('--drop_path', type=float, default=0.1, help="""Drop path rate for student network.""")
 
+    # Eval parameters
+    parser.add_argument('--n_last_blocks', default=1, type=int, help="""Concatenate [CLS] tokens
+        for the `n` last blocks. We use `n=1` all the time for k-NN evaluation.""")
+    parser.add_argument('--avgpool_patchtokens', default=0, choices=[0, 1, 2], type=int,
+        help="""Whether or not to use global average pooled features or the [CLS] token.
+        We typically set this to 1 for BEiT and 0 for models with [CLS] token (e.g., DINO).
+        we set this to 2 for base-size models with [CLS] token when doing linear classification.""")
+    parser.add_argument('--use_cuda', default=True, type=utils.bool_flag,
+        help="Should we store the features on GPU? We recommend setting this to False if you encounter OOM")
+
     # Multi-crop parameters
     parser.add_argument('--global_crops_number', type=int, default=2, help="""Number of global
         views to generate. Default is to use two global crops. """)
@@ -208,8 +224,11 @@ def train_ibot(args):
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
 
-    dataset_train_knn = ReturnIndexDataset(os.path.join(args.data_path, "train"), transform=transform_knn)
-    dataset_val_knn = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform_knn)
+    traindir = os.path.join(args.data_path, "train")
+    valdir = os.path.join(args.data_path, "val")
+
+    dataset_train_knn = ImageFolderInstance(traindir, transform=transform_knn)
+    dataset_val_knn = ImageFolderInstance(valdir, transform=transform_knn)
 
     if (args.subset is not None) and (args.subset >= 1):
         dataset_train_knn = utils.subset_of_Imagenet_train_split(dataset_train_knn, args.subset)
@@ -418,16 +437,14 @@ def train_ibot(args):
 
             # ============ extract features... ============
             print("Extracting features for train set...")
-            train_features = extract_features(teacher, data_loader_train_knn, True)
+            train_features, train_labels = extract_features(teacher.backbone, data_loader_train_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
             print("Extracting features for val set...")
-            test_features = extract_features(teacher, data_loader_val_knn, True)
+            test_features, test_labels = extract_features(teacher.backbone, data_loader_val_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
 
             if utils.get_rank() == 0:
                 train_features = nn.functional.normalize(train_features, dim=1, p=2)
                 test_features = nn.functional.normalize(test_features, dim=1, p=2)
 
-            train_labels = torch.tensor([s[-1] for s in dataset_train_knn.samples]).long()
-            test_labels = torch.tensor([s[-1] for s in dataset_val_knn.samples]).long()
             if utils.get_rank() == 0:
                 train_features = train_features.cuda()
                 test_features = test_features.cuda()
@@ -437,7 +454,7 @@ def train_ibot(args):
                 print("Features are ready!\nStart the k-NN classification.")
                 for k in args.nb_knn:
                     top1, top5 = knn_classifier(train_features, train_labels,
-                        test_features, test_labels, k, args.temperature)
+                        test_features, test_labels, k, args.teacher_temp, args.use_cuda)
                     print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
         
         teacher.train()
@@ -542,6 +559,8 @@ def train_one_epoch(student, teacher, teacher_without_ddp, ibot_loss, data_loade
         metric_logger.update(wd=optimizer.param_groups[0]["weight_decay"])
         metric_logger.update(acc=acc)
 
+        if it == 10:
+            break
     pred_labels = torch.cat(pred_labels).cpu().detach().numpy()
     real_labels = torch.cat(real_labels).cpu().detach().numpy()
     nmi, ari, fscore, adjacc = eval_pred(real_labels, pred_labels, calc_acc=False)
