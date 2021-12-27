@@ -20,6 +20,7 @@ import models
 
 from torch import nn
 from torchvision import transforms as pth_transforms
+from torchvision import datasets
 from loader import ImageFolderInstance
 
 def eval_knn(args):
@@ -266,6 +267,11 @@ def knn_classifier(train_features, train_labels, test_features, test_labels, k, 
     top1 = top1 * 100.0 / total
     top5 = top5 * 100.0 / total
     return top1, top5
+
+class ReturnIndexDataset(datasets.ImageFolder):
+    def __getitem__(self, idx):
+        img, lab = super(ReturnIndexDataset, self).__getitem__(idx)
+        return img, idx
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Evaluation with weighted k-NN on ImageNet')
