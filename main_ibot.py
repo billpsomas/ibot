@@ -28,6 +28,7 @@ from tensorboardX import SummaryWriter
 from models.head import iBOTHead
 from loader import ImageFolderMask
 from evaluation.unsupervised.unsup_cls import eval_pred
+from evaluation.eval_knn import extract_features, knn_classifier
 
 def get_args_parser():
     parser = argparse.ArgumentParser('iBOT', add_help=False)
@@ -151,7 +152,10 @@ def get_args_parser():
     return parser
     parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
                         "training (default -1). If -1, then all the availabe images are used.")
-    
+    parser.add_argument("--eval_every", default=1, type=int, help="How frequently to run evaluation (epochs)")
+    parser.add_argument("--nb_knn", default=[10, 20, 100, 200], nargs='+', type=int,
+                        help="Number of NN to use. 20 is usually working the best.")
+
 def train_ibot(args):
     utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
@@ -160,16 +164,16 @@ def train_ibot(args):
     cudnn.benchmark = True
 
     # ============ preparing data ... ============
-    transform = DataAugmentationiBOT(
+    transform_train = DataAugmentationiBOT(
         args.global_crops_scale,
         args.local_crops_scale,
         args.global_crops_number,
         args.local_crops_number,
     )
     pred_size = args.patch_size * 8 if 'swin' in args.arch else args.patch_size
-    dataset = ImageFolderMask(
+    dataset_train = ImageFolderMask(
         args.data_path, 
-        transform=transform,
+        transform=transform_train,
         patch_size=pred_size,
         pred_ratio=args.pred_ratio,
         pred_ratio_var=args.pred_ratio_var,
@@ -177,21 +181,40 @@ def train_ibot(args):
         pred_shape=args.pred_shape,
         pred_start_epoch=args.pred_start_epoch)
     
+    transform_val = transforms.Compose([
+        transforms.Resize(256, interpolation=3),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+    
+    dataset_val = datasets.ImageFolder(os.path.join(args.data_path, "val"), transform=transform_val)
     # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L244)
 
     if (args.subset is not None) and (args.subset >= 1):
-        dataset = utils.subset_of_Imagenet_train_split(dataset, args.subset)
+        dataset_train = utils.subset_of_Imagenet_train_split(dataset_train, args.subset)
 
-    sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
-    data_loader = torch.utils.data.DataLoader(
-        dataset,
-        sampler=sampler,
+    sampler_train = torch.utils.data.DistributedSampler(dataset_train, shuffle=True)
+    
+    data_loader_train = torch.utils.data.DataLoader(
+        dataset_train,
+        sampler=sampler_train,
         batch_size=args.batch_size_per_gpu,
         num_workers=args.num_workers,
         pin_memory=True,
         drop_last=True
     )
-    print(f"Data loaded: there are {len(dataset)} images.")
+
+    data_loader_val = torch.utils.data.DataLoader(
+        dataset_val,
+        batch_size=args.batch_size_per_gpu,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )
+
+    print(f"Data loaded for training: there are {len(dataset_train)} images.")
+    print(f"Data loaded for validation: there are {len(dataset_val)} images.")
 
     # ============ building student and teacher networks ... ============
     # we changed the name DeiT-S for ViT-S to avoid confusions
@@ -313,17 +336,17 @@ def train_ibot(args):
     lr_schedule = utils.cosine_scheduler(
         args.lr * (args.batch_size_per_gpu * utils.get_world_size()) / 256.,  # linear scaling rule
         args.min_lr,
-        args.epochs, len(data_loader),
+        args.epochs, len(data_loader_train),
         warmup_epochs=args.warmup_epochs,
     )
     wd_schedule = utils.cosine_scheduler(
         args.weight_decay,
         args.weight_decay_end,
-        args.epochs, len(data_loader),
+        args.epochs, len(data_loader_train),
     )
     # momentum parameter is increased to 1. during training with a cosine schedule
     momentum_schedule = utils.cosine_scheduler(args.momentum_teacher, 1,
-                                            args.epochs, len(data_loader))
+                                            args.epochs, len(data_loader_train))
                   
     print(f"Loss, optimizer and schedulers ready.")
 
@@ -344,12 +367,12 @@ def train_ibot(args):
     start_time = time.time()
     print("Starting iBOT training!")
     for epoch in range(start_epoch, args.epochs):
-        data_loader.sampler.set_epoch(epoch)
-        data_loader.dataset.set_epoch(epoch)
+        data_loader_train.sampler.set_epoch(epoch)
+        data_loader_train.dataset.set_epoch(epoch)
 
         # ============ training one epoch of iBOT ... ============
         train_stats = train_one_epoch(student, teacher, teacher_without_ddp, ibot_loss,
-            data_loader, optimizer, lr_schedule, wd_schedule, momentum_schedule,
+            data_loader_train, optimizer, lr_schedule, wd_schedule, momentum_schedule,
             epoch, fp16_scaler, args)
 
         # ============ writing logs ... ============
@@ -368,6 +391,36 @@ def train_ibot(args):
             utils.save_on_master(save_dict, os.path.join(args.output_dir, f'checkpoint{epoch:04}.pth'))
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      'epoch': epoch}
+        
+        if epoch % args.eval_every == 0:
+            teacher.eval()
+
+            # ============ extract features... ============
+            print("Extracting features for train set...")
+            train_features = extract_features(teacher, data_loader_train, True)
+            print("Extracting features for val set...")
+            test_features = extract_features(teacher, data_loader_val, True)
+
+            if utils.get_rank() == 0:
+                train_features = nn.functional.normalize(train_features, dim=1, p=2)
+                test_features = nn.functional.normalize(test_features, dim=1, p=2)
+
+            train_labels = torch.tensor([s[-1] for s in dataset_train.samples]).long()
+            test_labels = torch.tensor([s[-1] for s in dataset_val.samples]).long()
+            if utils.get_rank() == 0:
+                train_features = train_features.cuda()
+                test_features = test_features.cuda()
+                train_labels = train_labels.cuda()
+                test_labels = test_labels.cuda()
+
+                print("Features are ready!\nStart the k-NN classification.")
+                for k in args.nb_knn:
+                    top1, top5 = knn_classifier(train_features, train_labels,
+                        test_features, test_labels, k, args.temperature)
+                    print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
+        
+        teacher.train()
+
         if utils.is_main_process():
             with (Path(args.output_dir) / "log.txt").open("a") as f:
                 f.write(json.dumps(log_stats) + "\n")
