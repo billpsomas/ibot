@@ -210,7 +210,7 @@ def train_ibot(args):
     dataset_val_knn = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform_knn)
 
     if (args.subset is not None) and (args.subset >= 1):
-        dataset_train_knn = utils.subset_of_ImageNet_train_split(dataset_train_knn, args.subset)
+        dataset_train_knn = utils.subset_of_Imagenet_train_split(dataset_train_knn, args.subset)
 
     sampler_knn = torch.utils.data.DistributedSampler(dataset_train_knn, shuffle=False)
     
