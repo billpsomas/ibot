@@ -140,6 +140,7 @@ def get_args_parser():
         Used for small local view cropping of multi-crop.""")
 
     # Misc
+    parser.add_argument('--backend', default='nccl', type=str, help='Specify backend nccl or gloo')
     parser.add_argument('--data_path', default='/path/to/imagenet/train/', type=str,
         help='Please specify path to the ImageNet training data.')
     parser.add_argument('--output_dir', default=".", type=str, help='Path to save logs and checkpoints.')
@@ -149,12 +150,12 @@ def get_args_parser():
     parser.add_argument("--dist_url", default="env://", type=str, help="""url used to set up
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
-    return parser
     parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
                         "training (default -1). If -1, then all the availabe images are used.")
     parser.add_argument("--eval_every", default=1, type=int, help="How frequently to run evaluation (epochs)")
     parser.add_argument("--nb_knn", default=[10, 20, 100, 200], nargs='+', type=int,
                         help="Number of NN to use. 20 is usually working the best.")
+    return parser
 
 def train_ibot(args):
     utils.init_distributed_mode(args)
