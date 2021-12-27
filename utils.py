@@ -889,3 +889,30 @@ def compute_map(ranks, gnd, kappas=[]):
     pr = pr / (nq - nempty)
 
     return map, aps, pr, prs
+
+def subset_of_ImageNet_train_split(dataset_train, subset):
+    # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L244)
+    assert isinstance(subset, int)
+    assert subset > 0
+
+    all_indices = []
+    for _, img_indices in buildLabelIndex(dataset_train.targets).items():
+        assert len(img_indices) >= subset
+        all_indices += img_indices[:subset]
+
+    dataset_train.imgs = [dataset_train.imgs[idx] for idx in all_indices]
+    dataset_train.samples = [dataset_train.samples[idx] for idx in all_indices]
+    dataset_train.targets = [dataset_train.targets[idx] for idx in all_indices]
+    assert len(dataset_train) == (subset * 1000)
+
+    return dataset_train
+
+def buildLabelIndex(labels):
+    # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L38)
+    label2inds = {}
+    for idx, label in enumerate(labels):
+        if label not in label2inds:
+            label2inds[label] = []
+        label2inds[label].append(idx)
+
+    return label2inds 

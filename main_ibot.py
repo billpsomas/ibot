@@ -149,7 +149,9 @@ def get_args_parser():
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     return parser
-
+    parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
+                        "training (default -1). If -1, then all the availabe images are used.")
+    
 def train_ibot(args):
     utils.init_distributed_mode(args)
     utils.fix_random_seeds(args.seed)
@@ -174,6 +176,12 @@ def train_ibot(args):
         pred_aspect_ratio=(0.3, 1/0.3),
         pred_shape=args.pred_shape,
         pred_start_epoch=args.pred_start_epoch)
+    
+    # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L244)
+
+    if (args.subset is not None) and (args.subset >= 1):
+        dataset = utils.subset_of_Imagenet_train_split(dataset, args.subset)
+
     sampler = torch.utils.data.DistributedSampler(dataset, shuffle=True)
     data_loader = torch.utils.data.DataLoader(
         dataset,
