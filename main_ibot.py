@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 from models.head import iBOTHead
 from loader import ImageFolderMask
 from evaluation.unsupervised.unsup_cls import eval_pred
-from evaluation.eval_knn import extract_features, knn_classifier
+from evaluation.eval_knn import extract_features, knn_classifier, ReturnIndexDataset
 
 def get_args_parser():
     parser = argparse.ArgumentParser('iBOT', add_help=False)
@@ -181,21 +181,13 @@ def train_ibot(args):
         pred_shape=args.pred_shape,
         pred_start_epoch=args.pred_start_epoch)
     
-    transform_val = transforms.Compose([
-        transforms.Resize(256, interpolation=3),
-        transforms.CenterCrop(224),
-        transforms.ToTensor(),
-        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
-    ])
-    
-    dataset_val = datasets.ImageFolder(os.path.join(args.data_path, "val"), transform=transform_val)
     # Copied from Spyros Gidaris (https://github.com/valeoai/obow/blob/3758504f5e058275725c35ca7faca3731572b911/obow/datasets.py#L244)
 
     if (args.subset is not None) and (args.subset >= 1):
         dataset_train = utils.subset_of_Imagenet_train_split(dataset_train, args.subset)
 
     sampler_train = torch.utils.data.DistributedSampler(dataset_train, shuffle=True)
-    
+
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train,
         sampler=sampler_train,
@@ -205,8 +197,33 @@ def train_ibot(args):
         drop_last=True
     )
 
-    data_loader_val = torch.utils.data.DataLoader(
-        dataset_val,
+    # For k-NN
+    transform_knn = transforms.Compose([
+        transforms.Resize(256, interpolation=3),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
+    ])
+
+    dataset_train_knn = ReturnIndexDataset(os.path.join(args.data_path, "train"), transform=transform_knn)
+    dataset_val_knn = ReturnIndexDataset(os.path.join(args.data_path, "val"), transform=transform_knn)
+
+    if (args.subset is not None) and (args.subset >= 1):
+        dataset_train_knn = utils.subset_of_ImageNet_train_split(dataset_train_knn, args.subset)
+
+    sampler_knn = torch.utils.data.DistributedSampler(dataset_train_knn, shuffle=False)
+    
+    data_loader_train_knn = torch.utils.data.DataLoader(
+        dataset_train_knn,
+        sampler=sampler_knn,
+        batch_size=args.batch_size_per_gpu,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )
+
+    data_loader_val_knn = torch.utils.data.DataLoader(
+        dataset_val_knn,
         batch_size=args.batch_size_per_gpu,
         num_workers=args.num_workers,
         pin_memory=True,
@@ -214,7 +231,8 @@ def train_ibot(args):
     )
 
     print(f"Data loaded for training: there are {len(dataset_train)} images.")
-    print(f"Data loaded for validation: there are {len(dataset_val)} images.")
+    print(f"Data loaded for K-NN training: there are {len(dataset_train_knn)} images.")
+    print(f"Data loaded for K-NN validation: there are {len(dataset_val_knn)} images.")
 
     # ============ building student and teacher networks ... ============
     # we changed the name DeiT-S for ViT-S to avoid confusions
@@ -397,16 +415,16 @@ def train_ibot(args):
 
             # ============ extract features... ============
             print("Extracting features for train set...")
-            train_features = extract_features(teacher, data_loader_train, True)
+            train_features = extract_features(teacher, data_loader_train_knn, True)
             print("Extracting features for val set...")
-            test_features = extract_features(teacher, data_loader_val, True)
+            test_features = extract_features(teacher, data_loader_val_knn, True)
 
             if utils.get_rank() == 0:
                 train_features = nn.functional.normalize(train_features, dim=1, p=2)
                 test_features = nn.functional.normalize(test_features, dim=1, p=2)
 
-            train_labels = torch.tensor([s[-1] for s in dataset_train.samples]).long()
-            test_labels = torch.tensor([s[-1] for s in dataset_val.samples]).long()
+            train_labels = torch.tensor([s[-1] for s in dataset_train_knn.samples]).long()
+            test_labels = torch.tensor([s[-1] for s in dataset_val_knn.samples]).long()
             if utils.get_rank() == 0:
                 train_features = train_features.cuda()
                 test_features = test_features.cuda()
