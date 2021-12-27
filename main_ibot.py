@@ -432,7 +432,7 @@ def train_ibot(args):
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      'epoch': epoch}
         
-        if epoch % args.eval_every == 0:
+        if epoch % args.eval_every == 0 or epoch == args.epochs - 1:
             teacher.eval()
 
             # ============ extract features... ============
@@ -452,10 +452,13 @@ def train_ibot(args):
                 test_labels = test_labels.cuda()
 
                 print("Features are ready!\nStart the k-NN classification.")
+                knn_results = {'k-NN':{}}
                 for k in args.nb_knn:
                     top1, top5 = knn_classifier(train_features, train_labels,
                         test_features, test_labels, k, args.teacher_temp, args.use_cuda)
                     print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
+                    knn_results['k-NN'].update({k:{'top1':top1, 'top5':top5}})
+                log_stats.update(knn_results)
         
         teacher.train()
 
