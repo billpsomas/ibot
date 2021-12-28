@@ -170,7 +170,7 @@ def get_args_parser():
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
                         "training (default -1). If -1, then all the availabe images are used.")
-    parser.add_argument("--eval_every", default=1, type=int, help="How frequently to run evaluation (epochs)")
+    parser.add_argument("--eval_every", default=5, type=int, help="How frequently to run evaluation (epochs)")
     parser.add_argument("--nb_knn", default=[10, 20, 100, 200], nargs='+', type=int,
                         help="Number of NN to use. 20 is usually working the best.")
     return parser
