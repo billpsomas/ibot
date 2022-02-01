@@ -225,10 +225,10 @@ def extract_features(model, data_loader, n, avgpool, use_cuda=True, multiscale=F
 
 
 @torch.no_grad()
-def knn_classifier(train_features, train_labels, test_features, test_labels, k, T, use_cuda=True, num_classes=1000):
+def knn_classifier(train_features, train_labels, test_features, test_labels, k, T, use_cuda=True, num_classes=1000, num_chunks=500):
     top1, top5, total = 0.0, 0.0, 0
     train_features = train_features.t()
-    num_test_images, num_chunks = test_labels.shape[0], 100
+    num_test_images = test_labels.shape[0]
     imgs_per_chunk = num_test_images // num_chunks
     retrieval_one_hot = torch.zeros(k, num_classes)
     if use_cuda:

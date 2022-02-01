@@ -433,32 +433,10 @@ def train_ibot(args):
                      'epoch': epoch}
         
         if epoch % args.eval_every == 0 or epoch == args.epochs - 1:
-            teacher.eval()
-
-            # ============ extract features... ============
-            print("Extracting features for train set...")
-            train_features, train_labels = extract_features(teacher.backbone, data_loader_train_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
-            print("Extracting features for val set...")
-            test_features, test_labels = extract_features(teacher.backbone, data_loader_val_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
-
-            if utils.get_rank() == 0:
-                train_features = nn.functional.normalize(train_features, dim=1, p=2)
-                test_features = nn.functional.normalize(test_features, dim=1, p=2)
-
-            if utils.get_rank() == 0:
-                train_features = train_features.cuda()
-                test_features = test_features.cuda()
-                train_labels = train_labels.cuda()
-                test_labels = test_labels.cuda()
-
-                print("Features are ready!\nStart the k-NN classification.")
-                knn_results = {'k-NN':{}}
-                for k in args.nb_knn:
-                    top1, top5 = knn_classifier(train_features, train_labels,
-                        test_features, test_labels, k, args.teacher_temp, args.use_cuda)
-                    print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
-                    knn_results['k-NN'].update({k:{'top1':top1, 'top5':top5}})
-                log_stats.update(knn_results)
+            knn_results = knn_evaluation_pipeline(
+                teacher, data_loader_train_knn,
+                data_loader_val_knn, args)
+            log_stats.update(knn_results)
         
         teacher.train()
 
@@ -575,6 +553,33 @@ def train_one_epoch(student, teacher, teacher_without_ddp, ibot_loss, data_loade
     return_dict.update({"nmi": nmi, "ari": ari, "fscore": fscore, "adjacc": adjacc})
     return return_dict
 
+def knn_evaluation_pipeline(teacher, data_loader_train_knn, data_loader_val_knn, args):
+    teacher.eval()
+    # ============ extract features... ============
+    print("Extracting features for train set...")
+    train_features, train_labels = extract_features(teacher.backbone, data_loader_train_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
+    print("Extracting features for val set...")
+    test_features, test_labels = extract_features(teacher.backbone, data_loader_val_knn, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda)
+
+    if utils.get_rank() == 0:
+        train_features = nn.functional.normalize(train_features, dim=1, p=2)
+        test_features = nn.functional.normalize(test_features, dim=1, p=2)
+        
+    print("Features are ready!\nStart the k-NN classification.")
+    knn_results = {'k-NN':{}}
+    if utils.get_rank() == 0:
+        train_features = train_features.cuda()
+        test_features = test_features.cuda()
+        train_labels = train_labels.cuda()
+        test_labels = test_labels.cuda()
+
+        for k in args.nb_knn:
+            top1, top5 = knn_classifier(train_features, train_labels,
+                test_features, test_labels, k, args.teacher_temp, args.use_cuda)
+            print(f"{k}-NN classifier result: Top1: {top1}, Top5: {top5}")
+            knn_results['k-NN'].update({k:{'top1':top1, 'top5':top5}})
+    dist.barrier()
+    return knn_results
 
 class iBOTLoss(nn.Module):
     def __init__(self, out_dim, patch_out_dim, ngcrops, nlcrops, warmup_teacher_temp, 
