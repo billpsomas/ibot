@@ -15,6 +15,9 @@ import json
 import copy
 import torch
 import torch.backends.cudnn as cudnn
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 import utils
 import models
 
@@ -323,6 +326,7 @@ if __name__ == '__main__':
     parser.add_argument('--load_from', default=None, help='Path to load checkpoints to resume training')
     parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
                         "training (default -1). If -1, then all the availabe images are used.")
+    parser.add_argument('--backend', default='nccl', type=str, help='Specify backend nccl or gloo')
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
