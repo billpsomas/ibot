@@ -61,6 +61,10 @@ def eval_linear(args):
     valdir=os.path.join(args.data_path, "val")
     dataset_train = ImageFolder(traindir, transform=train_transform)
     dataset_val = ImageFolder(valdir, transform=val_transform)
+    
+    if (args.subset is not None) and (args.subset >= 1):
+        dataset_train = utils.subset_of_Imagenet_train_split(dataset_train, args.subset)
+        
     sampler = torch.utils.data.distributed.DistributedSampler(dataset_train)
     train_loader = torch.utils.data.DataLoader(
         dataset_train,
@@ -317,6 +321,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', default=".", help='Path to save logs and checkpoints')
     parser.add_argument('--num_labels', default=1000, type=int, help='Number of labels for linear classifier')
     parser.add_argument('--load_from', default=None, help='Path to load checkpoints to resume training')
+    parser.add_argument("--subset", default=-1, type=int, help="The number of images per class that they would be use for "
+                        "training (default -1). If -1, then all the availabe images are used.")
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
