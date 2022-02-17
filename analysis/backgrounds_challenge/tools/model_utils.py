@@ -77,15 +77,17 @@ def make_and_restore_model(*_, arch, dataset, resume_path=None,
 
             sd = checkpoint[state_dict_path]
             sd = {k[len('module.'):] if ('module.' in k) else k: v for k, v in sd.items()}
-            
+            # sd = {k.replace('backbone.', ''):v for k, v in sd.items()}
             # To deal with some compatability issues
             # model_dict = model.state_dict()
             # sd = {k: v for k, v in sd.items() if k in model_dict}
             # model_dict.update(sd)
             if use_normalization:
-                model.model.load_state_dict(sd, strict=False)
+                msg = model.model.load_state_dict(sd, strict=False)
+                print(msg)
             else:
-                model.load_state_dict(sd, strict=False)
+                msg = model.load_state_dict(sd, strict=False)
+                print(msg)
             
             if parallel:
                 model = ch.nn.DataParallel(model)

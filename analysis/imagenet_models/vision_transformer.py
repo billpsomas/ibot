@@ -6,7 +6,10 @@
 
 import torch
 import torch.nn as nn
-from vision_transformer import VisionTransformer
+import sys
+sys.path.append('.')
+sys.path.append('../..')
+from models.vision_transformer import VisionTransformer
 
 __all__ = ['vit_tiny', 'vit_small', 'vit_base', 'vit_large']
 

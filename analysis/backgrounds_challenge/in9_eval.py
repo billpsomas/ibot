@@ -19,7 +19,7 @@ from tools.datasets import ImageNet, ImageNet9
 from tools.model_utils import make_and_restore_model, eval_model
 
 parser = ArgumentParser()
-parser.add_argument('--batch_size', default=32, type=int)
+parser.add_argument('--batch_size', default=16, type=int)
 parser.add_argument('--arch', default='resnet50',
                     help='Model architecture, if loading a model checkpoint.')
 parser.add_argument('--checkpoint', default=None,

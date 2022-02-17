@@ -15,6 +15,9 @@ import os
 from torchvision import transforms
 from tools import folder
 from torch.utils.data import DataLoader
+import sys
+sys.path.append('.')
+sys.path.append('../../..')
 from analysis import imagenet_models
 
 def make_loaders(workers, batch_size, transforms, data_path, dataset, shuffle_val=False):
