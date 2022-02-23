@@ -17,6 +17,10 @@ import torchvision.transforms as trn
 import torch.nn.functional as F
 import numpy as np
 
+import sys
+sys.path.append('.')
+sys.path.append('../..')
+
 from analysis import imagenet_models
 from argparse import ArgumentParser
 from calibration_tools import *

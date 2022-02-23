@@ -23,6 +23,10 @@ import math
 import sys
 import copy
 import scipy.io as scio
+
+sys.path.append('..')
+sys.path.append('.')
+
 import models
 import utils
 
@@ -190,6 +194,8 @@ def get_args_parser():
     # distributed training parameters
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    parser.add_argument('--backend', default='nccl', type=str,
+        help='nccl or gloo')
 
     return parser
 

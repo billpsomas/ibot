@@ -15,6 +15,10 @@ import copy
 import torch
 import torch.distributed as dist
 import torch.backends.cudnn as cudnn
+import sys
+sys.path.append('.')
+sys.path.append('../..')
+
 import utils
 import models
 
@@ -281,7 +285,7 @@ if __name__ == '__main__':
         help="""Whether or not to use global average pooled features or the [CLS] token.
         We typically set this to 1 for BEiT and 0 for models with [CLS] token (e.g., DINO).
         we set this to 2 for base-size models with [CLS] token when doing linear classification.""")
-    parser.add_argument('--batch_size_per_gpu', default=128, type=int, help='Per-GPU batch-size')
+    parser.add_argument('--batch_size_per_gpu', default=100, type=int, help='Per-GPU batch-size')
     parser.add_argument('--nb_knn', default=[10, 20, 100, 200], nargs='+', type=int,
         help='Number of NN to use. 20 is usually working the best.')
     parser.add_argument('--temperature', default=0.07, type=float,
@@ -307,6 +311,8 @@ if __name__ == '__main__':
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument('--data_path', default='/path/to/imagenet/', type=str,
         help='Please specify path to the ImageNet data.')
+    parser.add_argument('--backend', default='nccl', type=str,
+        help='nccl or gloo')
     args = parser.parse_args()
     utils.init_distributed_mode(args)
     for checkpoint_key in args.checkpoint_key.split(','):
