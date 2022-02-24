@@ -28,6 +28,10 @@ sys.path.append('..')
 sys.path.append('.')
 
 import models
+
+#from vision_transformer import VisionTransformer, vit_tiny, vit_small, vit_base, vit_large
+#from swin_transformer import SwinTransformer, swin_tiny, swin_small, swin_base, swin_large
+
 import utils
 
 from pathlib import Path
@@ -168,7 +172,7 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
-    parser.add_argument('--data_set', default='IMNET', choices=['CIFAR', 'IMNET', 'image_folder'],
+    parser.add_argument('--data_set', default='IMNET', choices=['CIFAR100', 'CIFAR10', 'IMNET', 'image_folder'],
                             type=str, help='ImageNet dataset path')
     parser.add_argument('--inat-category', default='name',
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
@@ -292,7 +296,7 @@ class FlwrsDataset(ImageFolder):
 def build_dataset(is_train, args):
     transform = build_transform(is_train, args)
 
-    if args.data_set == 'CIFAR':
+    if args.data_set == 'CIFAR100':
         dataset = datasets.CIFAR100(args.data_path, train=is_train, transform=transform)
         nb_classes = 100
     elif args.data_set == 'CIFAR10':
