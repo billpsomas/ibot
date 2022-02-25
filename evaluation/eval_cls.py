@@ -24,14 +24,7 @@ import sys
 import copy
 import scipy.io as scio
 
-sys.path.append('..')
-sys.path.append('.')
-
 import models
-
-#from vision_transformer import VisionTransformer, vit_tiny, vit_small, vit_base, vit_large
-#from swin_transformer import SwinTransformer, swin_tiny, swin_small, swin_base, swin_large
-
 import utils
 
 from pathlib import Path
@@ -776,8 +769,10 @@ def main(args):
         )
 
         lr_scheduler.step(epoch)
-        test_stats = evaluate(data_loader_val, model, device)
-        print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+
+        if epoch % 50 == 0:
+            test_stats = evaluate(data_loader_val, model, device)
+            print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         
         if args.output_dir and (test_stats["acc1"] >= max_accuracy):
             # always only save best checkpoint till now
