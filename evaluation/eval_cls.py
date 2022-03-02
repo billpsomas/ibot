@@ -165,7 +165,7 @@ def get_args_parser():
     # Dataset parameters
     parser.add_argument('--data_path', default='/datasets01/imagenet_full_size/061417/', type=str,
                         help='dataset path')
-    parser.add_argument('--data_set', default='IMNET', choices=['CIFAR100', 'CIFAR10', 'IMNET', 'image_folder'],
+    parser.add_argument('--data_set', default='IMNET', choices=['CIFAR100', 'CIFAR10', 'Cars', 'Flowers', 'INAT18', 'INAT19', 'IMNET', 'image_folder'],
                             type=str, help='ImageNet dataset path')
     parser.add_argument('--inat-category', default='name',
                         choices=['kingdom', 'phylum', 'class', 'order', 'supercategory', 'family', 'genus', 'name'],
@@ -299,7 +299,7 @@ def build_dataset(is_train, args):
         root = os.path.join(args.data_path, 'train' if is_train else 'val')
         dataset = datasets.ImageFolder(root, transform=transform)
         nb_classes = 1000
-    elif args.data_set == 'INAT':
+    elif args.data_set == 'INAT18':
         dataset = INatDataset(args.data_path, train=is_train, year=2018,
                               category=args.inat_category, transform=transform)
         nb_classes = dataset.nb_classes
@@ -310,9 +310,11 @@ def build_dataset(is_train, args):
     elif args.data_set == 'Cars':
         dataset = CarsDataset(args.data_path, train=is_train, transform=transform)
         nb_classes = dataset.nb_classes
-    else:
+    elif args.data_set == 'Flowers':
         dataset = FlwrsDataset(args.data_path, train=is_train, transform=transform)
         nb_classes = dataset.nb_classes
+    else:
+        print('Please provide a correct dataset, {} is not supported'.format(args.data_set))
     return dataset, nb_classes
 
 def build_transform(is_train, args):
