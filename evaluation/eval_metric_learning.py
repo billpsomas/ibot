@@ -19,6 +19,8 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import utils
 import models
+import torchvision
+import scipy
 
 from torch import nn
 from PIL import Image, ImageFile
@@ -26,47 +28,113 @@ from torchvision import models as torchvision_models
 from torchvision import transforms as pth_transforms
 from eval_knn import extract_features
 
-class OxfordParisDataset(torch.utils.data.Dataset):
-    def __init__(self, dir_main, dataset, split, transform=None, imsize=None):
-        if dataset not in ['roxford5k', 'rparis6k']:
-            raise ValueError('Unknown dataset: {}!'.format(dataset))
-
-        # loading imlist, qimlist, and gnd, in cfg as a dict
-        gnd_fname = os.path.join(dir_main, dataset, 'gnd_{}.pkl'.format(dataset))
-        with open(gnd_fname, 'rb') as f:
-            cfg = pickle.load(f)
-        cfg['gnd_fname'] = gnd_fname
-        cfg['ext'] = '.jpg'
-        cfg['qext'] = '.jpg'
-        cfg['dir_data'] = os.path.join(dir_main, dataset)
-        cfg['dir_images'] = os.path.join(cfg['dir_data'], 'jpg')
-        cfg['n'] = len(cfg['imlist'])
-        cfg['nq'] = len(cfg['qimlist'])
-        cfg['im_fname'] = config_imname
-        cfg['qim_fname'] = config_qimname
-        cfg['dataset'] = dataset
-        self.cfg = cfg
-
-        self.samples = cfg["qimlist"] if split == "query" else cfg["imlist"]
+class BaseDataset(torch.utils.data.Dataset):
+    def __init__(self, root, mode, transform = None):
+        self.root = root
+        self.mode = mode
         self.transform = transform
-        self.imsize = imsize
+        self.ys, self.im_paths, self.I = [], [], []
+
+    def nb_classes(self):
+        assert set(self.ys) == set(self.classes)
+        return len(self.classes)
 
     def __len__(self):
-        return len(self.samples)
+        return len(self.ys)
 
     def __getitem__(self, index):
-        path = os.path.join(self.cfg["dir_images"], self.samples[index] + ".jpg")
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
-        with open(path, 'rb') as f:
-            img = Image.open(f)
-            img = img.convert('RGB')
-        if self.imsize is not None:
-            img.thumbnail((self.imsize, self.imsize), Image.ANTIALIAS)
-        if self.transform is not None:
-            img = self.transform(img)
-        # img, label, index
-        return img, -1, index
+        def img_load(index):
+            im = Image.open(self.im_paths[index])
+            # convert gray to rgb
+            if len(list(im.split())) == 1 : im = im.convert('RGB')
+            if self.transform is not None:
+                im = self.transform(im)
+            
+            return im
 
+        im = img_load(index)
+        target = self.ys[index]
+
+        return im, target, index
+
+    def get_label(self, index):
+        return self.ys[index]
+
+    def set_subset(self, I):
+        self.ys = [self.ys[i] for i in I]
+        self.I = [self.I[i] for i in I]
+        self.im_paths = [self.im_paths[i] for i in I]
+
+class CUBirds(BaseDataset):
+    def __init__(self, root, mode, transform = None):
+        self.root = root + '/CUB_200_2011'
+        self.mode = mode
+        self.transform = transform
+        if self.mode == 'train':
+            self.classes = range(0,100)
+        elif self.mode == 'eval':
+            self.classes = range(100,200)
+
+        BaseDataset.__init__(self, self.root, self.mode, self.transform)
+        index = 0
+        for i in torchvision.datasets.ImageFolder(root=os.path.join(self.root, 'images')).imgs:
+            # i[1]: label, i[0]: root
+            y = i[1]
+            # fn needed for removing non-images starting with `._`
+            fn = os.path.split(i[0])[1]
+            if y in self.classes and fn[:2] != '._':
+                self.ys += [y]
+                self.I += [index]
+                self.im_paths.append(os.path.join(self.root, i[0]))
+                index += 1
+
+class Cars(BaseDataset):
+    def __init__(self, root, mode, transform = None):
+        self.root = root + '/cars196'
+        self.mode = mode
+        self.transform = transform
+        if self.mode == 'train':
+            self.classes = range(0,98)
+        elif self.mode == 'eval':
+            self.classes = range(98,196)
+
+        BaseDataset.__init__(self, self.root, self.mode, self.transform)
+        annos_fn = 'cars_annos.mat'
+        cars = scipy.io.loadmat(os.path.join(self.root, annos_fn))
+        ys = [int(a[5][0] - 1) for a in cars['annotations'][0]]
+        im_paths = [a[0][0] for a in cars['annotations'][0]]
+        index = 0
+        for im_path, y in zip(im_paths, ys):
+            if y in self.classes: # choose only specified classes
+                self.im_paths.append(os.path.join(self.root, im_path))
+                self.ys.append(y)
+                self.I += [index]
+                index += 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def calc_recall_at_k(T, Y, k):
+    """
+    T : [nb_samples] (target labels)
+    Y : [nb_samples x k] (k predicted labels/neighbours)
+    """
+
+    s = 0
+    for t,y in zip(T,Y):
+        if t in torch.Tensor(y).long()[:k]:
+            s += 1
+    return s / (1. * len(T))
 
 def config_imname(cfg, i):
     return os.path.join(cfg['dir_images'], cfg['imlist'][i] + cfg['ext'])
@@ -74,7 +142,6 @@ def config_imname(cfg, i):
 
 def config_qimname(cfg, i):
     return os.path.join(cfg['dir_images'], cfg['qimlist'][i] + cfg['qext'])
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Image Retrieval on revisited Paris and Oxford')
@@ -85,7 +152,7 @@ if __name__ == '__main__':
         We typically set this to 1 for BEiT and 0 for models with [CLS] token (e.g., DINO).
         we set this to 2 for base-size models with [CLS] token when doing linear classification.""")
     parser.add_argument('--data_path', default='/path/to/revisited_paris_oxford/', type=str)
-    parser.add_argument('--dataset', default='roxford5k', type=str, choices=['roxford5k', 'rparis6k'])
+    parser.add_argument('--dataset', default='roxford5k', type=str, choices=['roxford5k', 'rparis6k', 'cub', 'cars'])
     parser.add_argument('--multiscale', default=False, type=utils.bool_flag)
     parser.add_argument('--imsize', default=224, type=int, help='Image size')
     parser.add_argument('--pretrained_weights', default='', type=str, help="Path to pretrained weights to evaluate.")
@@ -112,23 +179,30 @@ if __name__ == '__main__':
         pth_transforms.ToTensor(),
         pth_transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
-    dataset_train = OxfordParisDataset(args.data_path, args.dataset, split="train", transform=transform, imsize=args.imsize)
-    dataset_query = OxfordParisDataset(args.data_path, args.dataset, split="query", transform=transform, imsize=args.imsize)
+    
+    if args.dataset == 'cub':
+        dataset_train = CUBirds(args.data_path, mode="train", transform=transform)
+        dataset_query = CUBirds(args.data_path, mode="eval", transform=transform)
+    elif args.dataset == 'cars':
+        dataset_train = Cars(args.data_path, mode="train", transform=transform)
+        dataset_query = Cars(args.data_path, mode="eval", transform=transform)
+
     sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
-    data_loader_train = torch.utils.data.DataLoader(
-        dataset_train,
+
+    dataloader_train = torch.utils.data.DataLoader(
+        dataset_train, 
         sampler=sampler,
-        batch_size=1,
+        batch_size = 1,
         num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=False,
+        pin_memory = True,
+        drop_last = True,
     )
-    data_loader_query = torch.utils.data.DataLoader(
+
+    dataloader_query = torch.utils.data.DataLoader(
         dataset_query,
         batch_size=1,
         num_workers=args.num_workers,
         pin_memory=True,
-        drop_last=False,
     )
     print(f"train: {len(dataset_train)} imgs / query: {len(dataset_query)} imgs")
 
@@ -184,40 +258,50 @@ if __name__ == '__main__':
 
     ############################################################################
     # Step 1: extract features
-    train_features, _ = extract_features(model, data_loader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
-    query_features, _ = extract_features(model, data_loader_query, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
+    train_features, train_labels = extract_features(model, dataloader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
+    query_features, query_labels = extract_features(model, dataloader_query, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
 
     if utils.get_rank() == 0:  # only rank 0 will work from now on
         # normalize features
-        train_features = nn.functional.normalize(train_features, dim=1, p=2)
         query_features = nn.functional.normalize(query_features, dim=1, p=2)
 
-        ############################################################################
-        # Step 2: similarity
-        sim = torch.mm(train_features, query_features.T)
-        ranks = torch.argsort(-sim, dim=0).cpu().numpy()
+        K = 32
+        Y = []
+        
+        cos_sim = torch.mm(query_features, query_features.T)
+        
+        Y = query_labels[cos_sim.topk(1 + K)[1][:,1:]]
+        Y = Y.float().cpu()
+        query_labels = query_labels.float().cpu()
 
-        ############################################################################
-        # Step 3: evaluate
-        gnd = dataset_train.cfg['gnd']
-        # evaluate ranks
-        ks = [1, 5, 10]
-        # search for easy & hard
-        gnd_t = []
-        for i in range(len(gnd)):
-            g = {}
-            g['ok'] = np.concatenate([gnd[i]['easy'], gnd[i]['hard']])
-            g['junk'] = np.concatenate([gnd[i]['junk']])
-            gnd_t.append(g)
-        mapM, apsM, mprM, prsM = utils.compute_map(ranks, gnd_t, ks)
-        # search for hard
-        gnd_t = []
-        for i in range(len(gnd)):
-            g = {}
-            g['ok'] = np.concatenate([gnd[i]['hard']])
-            g['junk'] = np.concatenate([gnd[i]['junk'], gnd[i]['easy']])
-            gnd_t.append(g)
-        mapH, apsH, mprH, prsH = utils.compute_map(ranks, gnd_t, ks)
-        print('>> {}: mAP M: {}, H: {}'.format(args.dataset, np.around(mapM*100, decimals=2), np.around(mapH*100, decimals=2)))
-        print('>> {}: mP@k{} M: {}, H: {}'.format(args.dataset, np.array(ks), np.around(mprM*100, decimals=2), np.around(mprH*100, decimals=2)))
+        recall = []
+        for k in [1, 2, 4, 8, 16, 32]:
+            r_at_k = calc_recall_at_k(query_labels, Y, k)
+            recall.append(r_at_k)
+            print("R@{} : {:.3f}".format(k, 100 * r_at_k))
     dist.barrier()
+
+
+
+#AttMask CUB 
+
+'''
+R@1 : 53.022
+R@2 : 66.138
+R@4 : 77.093
+R@8 : 85.685
+R@16 : 91.796
+R@32 : 95.493
+'''
+
+#iBOT CUB
+'''
+R@1 : 45.847
+R@2 : 58.930
+R@4 : 71.404
+R@8 : 81.195
+R@16 : 88.403
+R@32 : 93.619
+'''
+
+
