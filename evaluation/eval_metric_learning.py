@@ -22,6 +22,7 @@ import models
 import torchvision
 import scipy
 
+from scipy import io
 from torch import nn
 from PIL import Image, ImageFile
 from torchvision import models as torchvision_models
@@ -187,8 +188,8 @@ if __name__ == '__main__':
         dataset_train = Cars(args.data_path, mode="train", transform=transform)
         dataset_query = Cars(args.data_path, mode="eval", transform=transform)
 
-    sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
-
+    #sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
+    '''
     dataloader_train = torch.utils.data.DataLoader(
         dataset_train, 
         sampler=sampler,
@@ -197,7 +198,7 @@ if __name__ == '__main__':
         pin_memory = True,
         drop_last = True,
     )
-
+    '''
     dataloader_query = torch.utils.data.DataLoader(
         dataset_query,
         batch_size=1,
@@ -258,7 +259,7 @@ if __name__ == '__main__':
 
     ############################################################################
     # Step 1: extract features
-    train_features, train_labels = extract_features(model, dataloader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
+    #train_features, train_labels = extract_features(model, dataloader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
     query_features, query_labels = extract_features(model, dataloader_query, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
 
     if utils.get_rank() == 0:  # only rank 0 will work from now on
