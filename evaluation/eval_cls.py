@@ -772,7 +772,7 @@ def main(args):
 
         lr_scheduler.step(epoch)
 
-        if epoch % 50 == 0:
+        if epoch % 50 == 0 or epoch == 999:
             test_stats = evaluate(data_loader_val, model, device)
             print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
         
