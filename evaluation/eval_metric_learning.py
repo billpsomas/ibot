@@ -114,7 +114,7 @@ class Cars(BaseDataset):
 
 class SOP(BaseDataset):
     def __init__(self, root, mode, transform = None):
-        self.root = root + '/online_products'
+        self.root = root + '/Stanford_Online_Products'
         self.mode = mode
         self.transform = transform
         if self.mode == 'train':
@@ -209,6 +209,9 @@ if __name__ == '__main__':
     elif args.dataset == 'sop':
         #dataset_train = SOP(args.data_path, mode="train", transform=transform)
         dataset_query = SOP(args.data_path, mode="eval", transform=transform)
+    elif args.dataset == 'inshop':
+        dataset_query = Inshop(args.data_path, mode="query", transform=transform)
+        dataset_gallery = Inshop(args.data_path, mode="gallery", transform=transform)
 
     #sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
     '''
@@ -221,6 +224,8 @@ if __name__ == '__main__':
         drop_last = True,
     )
     '''
+    
+    
     dataloader_query = torch.utils.data.DataLoader(
         dataset_query,
         batch_size=1,
@@ -228,6 +233,8 @@ if __name__ == '__main__':
         pin_memory=True,
         drop_last=True,
     )
+    
+    
     #print(f"train: {len(dataset_train)} imgs / query: {len(dataset_query)} imgs")
 
     # ============ building network ... ============
