@@ -207,7 +207,7 @@ if __name__ == '__main__':
         dataset_train = Cars(args.data_path, mode="train", transform=transform)
         dataset_query = Cars(args.data_path, mode="eval", transform=transform)
     elif args.dataset == 'sop':
-        dataset_train = SOP(args.data_path, mode="train", transform=transform)
+        #dataset_train = SOP(args.data_path, mode="train", transform=transform)
         dataset_query = SOP(args.data_path, mode="eval", transform=transform)
 
     #sampler = torch.utils.data.DistributedSampler(dataset_train, shuffle=False)
@@ -228,7 +228,7 @@ if __name__ == '__main__':
         pin_memory=True,
         drop_last=True,
     )
-    print(f"train: {len(dataset_train)} imgs / query: {len(dataset_query)} imgs")
+    #print(f"train: {len(dataset_train)} imgs / query: {len(dataset_query)} imgs")
 
     # ============ building network ... ============
     if "vit" in args.arch:
