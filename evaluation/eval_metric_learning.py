@@ -226,7 +226,7 @@ if __name__ == '__main__':
         We typically set this to 1 for BEiT and 0 for models with [CLS] token (e.g., DINO).
         we set this to 2 for base-size models with [CLS] token when doing linear classification.""")
     parser.add_argument('--data_path', default='/path/to/revisited_paris_oxford/', type=str)
-    parser.add_argument('--dataset', default='roxford5k', type=str, choices=['roxford5k', 'rparis6k', 'cub', 'cars', 'sop'])
+    parser.add_argument('--dataset', default='roxford5k', type=str, choices=['roxford5k', 'rparis6k', 'cub', 'cars', 'sop', 'inshop'])
     parser.add_argument('--multiscale', default=False, type=utils.bool_flag)
     parser.add_argument('--imsize', default=224, type=int, help='Image size')
     parser.add_argument('--pretrained_weights', default='', type=str, help="Path to pretrained weights to evaluate.")
@@ -241,6 +241,7 @@ if __name__ == '__main__':
         distributed training; see https://pytorch.org/docs/stable/distributed.html""")
     parser.add_argument("--local_rank", default=0, type=int, help="Please ignore and do not set this argument.")
     parser.add_argument("--backend", default="gloo", type=str, help="Backend to use.")
+    parser.add_argument('--save_features', default=False, type=utils.bool_flag)
     args = parser.parse_args()
 
     utils.init_distributed_mode(args)
@@ -363,8 +364,17 @@ if __name__ == '__main__':
     #train_features, train_labels = extract_features(model, dataloader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
     query_features, query_labels = extract_features(model, dataloader_query, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
 
+    if args.save_features:
+        if not os.path.exists('features'):
+            os.makedirs('features')
+        np.save('features/iboff_{}_query_features'.format(args.dataset), query_features.float().cpu().numpy())
+        np.save('features/iboff_{}_query_labels'.format(args.dataset), query_labels.float().cpu().numpy())
+
     if args.dataset == 'inshop':
         gallery_features, gallery_labels = extract_features(model, dataloader_gallery, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
+        if args.save_features:
+            np.save('features/iboff_{}_gallery_features'.format(args.dataset), gallery_features.float().cpu().numpy())
+            np.save('features/iboff_{}_gallery_labels'.format(args.dataset), gallery_labels.float().cpu().numpy())
 
     if utils.get_rank() == 0:  # only rank 0 will work from now on
         # normalize features
@@ -391,16 +401,17 @@ if __name__ == '__main__':
                     xs.append(x)
                 else:
                     xs.append(x)
+                    import pdb;pdb.set_trace()
                     xs = torch.stack(xs, dim=0)
-                    #cos_sim = torch.mm(xs, query_features.T)
-                    cos_sim = F.linear(xs, query_features)
+                    cos_sim = torch.mm(xs, query_features.T)
+                    #cos_sim = F.linear(xs, query_features.T)
                     y = query_labels[cos_sim.topk(1 + K)[1][:,1:]]
                     Y.append(y.float().cpu())
                     xs = []
             
-            xs = torch.stack(xs, dim=1)
+            xs = torch.stack(xs, dim=0)
             #cos_sim = torch.mm(xs, query_features.T)
-            cos_sim = F.linear(xs, query_features)
+            cos_sim = torch.mm(xs, query_features.T)
             y = query_labels[cos_sim.topk(1 + K)[1][:,1:]]
             Y.append(y.float().cpu())
             Y = torch.cat(Y, dim=0)
@@ -443,17 +454,7 @@ if __name__ == '__main__':
 
 
 
-#AttMask CUB 
-'''
-R@1 : 53.022
-R@2 : 66.138
-R@4 : 77.093
-R@8 : 85.685
-R@16 : 91.796
-R@32 : 95.493
-'''
-
-#AttMask CUB - with resize and randomcrop
+#AttMask CUB
 '''
 R@1 : 57.174
 R@2 : 69.379
@@ -464,16 +465,6 @@ R@32 : 96.320
 '''
 
 #iBOT CUB
-'''
-R@1 : 45.847
-R@2 : 58.930
-R@4 : 71.404
-R@8 : 81.195
-R@16 : 88.403
-R@32 : 93.619
-'''
-
-#iBOT CUB - with resize and randomcrop
 '''
 R@1 : 51.384
 R@2 : 63.842
@@ -501,4 +492,40 @@ R@4 : 56.389
 R@8 : 67.630
 R@16 : 78.072
 R@32 : 86.767
+'''
+
+#AttMask SOP 
+'''
+R@1 : 59.043
+R@10 : 73.925
+R@100 : 85.432
+R@1000 : 94.721
+'''
+
+#iBOT SOP
+'''
+R@1 : 57.358
+R@10 : 72.209
+R@100 : 84.086
+R@1000 : 93.918
+'''
+
+#AttMask In-Shop
+'''
+R@1 : 40.737
+R@10 : 63.694
+R@20 : 70.333
+R@30 : 74.005
+R@40 : 76.649
+R@50 : 78.372
+'''
+
+#iBOT In-Shop
+'''
+R@1 : 39.091
+R@10 : 61.879
+R@20 : 68.160
+R@30 : 71.719
+R@40 : 74.237
+R@50 : 76.150
 '''
