@@ -22,6 +22,7 @@ import models
 import torchvision
 import scipy
 import pandas as pd
+import torch.nn.functional as F
 
 from scipy import io
 from torch import nn
@@ -280,14 +281,29 @@ if __name__ == '__main__':
     )
     '''
     
-    
-    dataloader_query = torch.utils.data.DataLoader(
-        dataset_query,
-        batch_size=1,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
+    if args.dataset != 'inshop':
+        dataloader_query = torch.utils.data.DataLoader(
+            dataset_query,
+            batch_size=1,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            drop_last=True,
+        )
+    else:
+        dataloader_query = torch.utils.data.DataLoader(
+            dataset_query,
+            batch_size=1,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            drop_last=True,
+        )
+        dataloader_gallery = torch.utils.data.DataLoader(
+            dataset_gallery,
+            batch_size=1,
+            num_workers=args.num_workers,
+            pin_memory=True,
+            drop_last=True,
+        )
     
     
     #print(f"train: {len(dataset_train)} imgs / query: {len(dataset_query)} imgs")
@@ -347,6 +363,9 @@ if __name__ == '__main__':
     #train_features, train_labels = extract_features(model, dataloader_train, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
     query_features, query_labels = extract_features(model, dataloader_query, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
 
+    if args.dataset == 'inshop':
+        gallery_features, gallery_labels = extract_features(model, dataloader_gallery, args.n_last_blocks, args.avgpool_patchtokens, args.use_cuda, multiscale=args.multiscale)
+
     if utils.get_rank() == 0:  # only rank 0 will work from now on
         # normalize features
         query_features = nn.functional.normalize(query_features, dim=1, p=2)        
@@ -373,13 +392,15 @@ if __name__ == '__main__':
                 else:
                     xs.append(x)
                     xs = torch.stack(xs, dim=0)
-                    cos_sim = torch.mm(xs, query_features.T)
+                    #cos_sim = torch.mm(xs, query_features.T)
+                    cos_sim = F.linear(xs, query_features)
                     y = query_labels[cos_sim.topk(1 + K)[1][:,1:]]
                     Y.append(y.float().cpu())
                     xs = []
             
             xs = torch.stack(xs, dim=1)
-            cos_sim = torch.mm(xs, query_features.T)
+            #cos_sim = torch.mm(xs, query_features.T)
+            cos_sim = F.linear(xs, query_features)
             y = query_labels[cos_sim.topk(1 + K)[1][:,1:]]
             Y.append(y.float().cpu())
             Y = torch.cat(Y, dim=0)
@@ -387,6 +408,35 @@ if __name__ == '__main__':
             recall = []
             for k in [1, 10, 100, 1000]:
                 r_at_k = calc_recall_at_k(query_labels, Y, k)
+                recall.append(r_at_k)
+                print("R@{} : {:.3f}".format(k, 100 * r_at_k))
+        
+        elif args.dataset == 'inshop':
+            gallery_features = nn.functional.normalize(gallery_features, dim=1, p=2)
+            K = 50
+            Y = []
+            xs = []
+            
+            cos_sim = F.linear(query_features, gallery_features)
+
+            def recall_k(cos_sim, query_T, gallery_T, k):
+                m = len(cos_sim)
+                match_counter = 0
+
+                for i in range(m):
+                    pos_sim = cos_sim[i][gallery_T == query_T[i]]
+                    neg_sim = cos_sim[i][gallery_T != query_T[i]]
+
+                    thresh = torch.max(pos_sim).item()
+
+                    if torch.sum(neg_sim > thresh) < k:
+                        match_counter += 1
+                    
+                return match_counter / m
+            
+            recall = []
+            for k in [1, 10, 20, 30, 40, 50]:
+                r_at_k = recall_k(cos_sim, query_labels, gallery_labels, k)
                 recall.append(r_at_k)
                 print("R@{} : {:.3f}".format(k, 100 * r_at_k))
     dist.barrier()
